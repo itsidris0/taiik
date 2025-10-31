@@ -1036,6 +1036,28 @@
 
             <form id="editUserForm" onsubmit="submitUserEdit(event)">
                 <input type="hidden" id="editUserEmail">
+
+                <div class="form-group">
+                    <label>Abteilung</label>
+                    <input type="text" id="editUserAbteilung" class="form-control" placeholder="z.B. Marketing, IT...">
+                </div>
+                <div class="form-group">
+                    <label>Rolle</label>
+                    <select id="editUserRole" class="form-control" onchange="toggleManagerSelect(this.value)">
+                        <option value="mitarbeiter">Mitarbeiter</option>
+                        <option value="vorgesetzter">Vorgesetzter</option>
+                        <option value="hr">HR</option>
+                        <option value="ceo">CEO</option>
+                    </select>
+                </div>
+                <div class="form-group" id="managerSelectGroup"> <label>Zuständiger Vorgesetzter</label>
+                    <select id="editUserManager" class="form-control">
+                        <option value="">-- Keiner zugewiesen --</option>
+                    </select>
+                </div>
+
+                <hr style="border: none; border-top: 1px solid var(--border); margin: 30px 0;">
+
                 <div class="form-group">
                     <label>Arbeitsstunden (Gesamt)</label>
                     <input type="number" step="0.1" id="editTotalHours" class="form-control" required>
@@ -1056,13 +1078,12 @@
                     <label>Überstunden (Saldo)</label>
                     <input type="number" step="0.1" id="editOvertime" class="form-control" required>
                 </div>
-
                 <div class="form-group">
                     <label>Wöchentliche Soll-Stunden</label>
                     <input type="number" step="0.5" id="editWeeklyHours" class="form-control" required>
                 </div>
 
-                <button type="submit" class="btn">Statistiken speichern</button>
+                <button type="submit" class="btn">Daten speichern</button>
             </form>
 
             <div style="margin-top: 40px; border-top: 2px solid var(--border); padding-top: 30px;">
@@ -1114,29 +1135,12 @@
             }
             return days;
         }
-
-        // =======================================================
-        // NEUE HELFER-FUNKTION (FIX FÜR BUG 2 & 3)
-        // =======================================================
-        /**
-         * Holt das heutige Datum als 'YYYY-MM-DD' String,
-         * unabhängig von der Zeitzone (verhindert Datumsverschiebung).
-         */
         function getLocalISODate() {
             const date = new Date();
-            // Korrigiert den Zeitzonen-Offset, um Mitternachts-Fehler zu vermeiden
             const offset = date.getTimezoneOffset();
             const localDate = new Date(date.getTime() - (offset * 60 * 1000));
             return localDate.toISOString().split('T')[0];
         }
-
-        // =======================================================
-        // NEUE HELFER-FUNKTION (FIX FÜR BUG 1)
-        // =======================================================
-        /**
-         * Konvertiert ein lokales Date-Objekt in einen 'YYYY-MM-DD' String.
-         * Verhindert Zeitzonen-Fehler beim .toISOString()
-         */
         function toLocalISOString(date) {
             const year = date.getFullYear();
             const month = (date.getMonth() + 1).toString().padStart(2, '0');
@@ -1194,7 +1198,7 @@
                     document.getElementById('dashboardTitle').textContent = 'Management Dashboard';
                     manageUsersBtn.style.display = 'inline-block';
                     loadRequests();
-                } else if (userStats.role === 'vorgesetzter') {
+                } else if (userStats.role === 'vorgesetzter' || userStats.role === 'ceo') {
                     requestsSection.style.display = 'block';
                     document.getElementById('dashboardTitle').textContent = 'Management Dashboard';
                     manageUsersBtn.style.display = 'none';
@@ -1272,6 +1276,7 @@
                 case 'mitarbeiter': return 'Mitarbeiter';
                 case 'vorgesetzter': return 'Vorgesetzter/Teamleiter';
                 case 'hr': return 'HR/Management';
+                case 'ceo': return 'CEO';
                 default: return role;
             }
         }
@@ -1343,7 +1348,6 @@
         function openModal(modalId) {
             document.getElementById(modalId).classList.add('active');
 
-            // KORRIGIERT (BUG 2 & 3): Nutzt getLocalISODate()
             const today = getLocalISODate();
 
             if (modalId === 'timeModal') { document.getElementById('timeDate').value = today; }
@@ -1363,14 +1367,8 @@
             document.getElementById(modalId).classList.remove('active');
         }
 
-        // =======================================================
-        // NEUE HELFER-FUNKTION (FIX FÜR BUG 1 - Workflow)
-        // =======================================================
-        /**
-         * Aktualisiert die User-Stats in der DB, wenn HR sich selbst etwas genehmigt.
-         */
         async function autoApproveStats(request) {
-            console.log("Auto-approving HR request...", request.id);
+            console.log("Auto-approving request...", request.id);
             let statsToUpdate = {
                 totalHours: currentUserStats.totalHours,
                 overtime: currentUserStats.overtime,
@@ -1409,8 +1407,16 @@
             }
         }
 
+        async function sendSubmissionNotification(target, message) {
+            if (target.role) {
+                await createNotificationForRole(target.role, message);
+            } else if (target.email) {
+                await createNotification(target.email, message);
+            }
+        }
 
-        // --- Antrags-Submit-Funktionen (ALLE GEÄNDERT FÜR BUG 1) ---
+
+        // --- Antrags-Submit-Funktionen (ALLE GEÄNDERT FÜR NEUEN WORKFLOW) ---
         async function submitTimeEntry(e) {
             e.preventDefault();
             const date = document.getElementById('timeDate').value;
@@ -1427,23 +1433,39 @@
                 alert("Endzeit muss nach Startzeit liegen."); return;
             }
 
-            // --- KORRIGIERT: Workflow-Logik (BUG 1) ---
+            // --- NEUER WORKFLOW ---
             let newStatus = 'pending_manager';
-            let notifyRole = 'vorgesetzter';
             let showAlert = 'Arbeitszeit erfolgreich eingetragen! Wartet auf Bestätigung.';
             let sendNotification = true;
+            let approverEmail = null;
+            let approverRole = null;
+            let notificationTarget = {};
 
-            if (currentUser.role === 'hr') {
+            if (currentUser.role === 'ceo') {
                 newStatus = 'approved';
-                showAlert = 'Arbeitszeit als HR direkt verbucht.';
+                showAlert = 'Arbeitszeit als CEO direkt verbucht.';
                 sendNotification = false;
+            } else if (currentUser.role === 'hr') {
+                newStatus = 'pending_ceo';
+                approverRole = 'ceo';
+                notificationTarget = { role: 'ceo' };
+                showAlert = 'Arbeitszeit eingereicht. Wartet auf CEO-Genehmigung.';
             } else if (currentUser.role === 'vorgesetzter') {
                 newStatus = 'pending_hr';
-                notifyRole = 'hr';
+                approverRole = 'hr';
+                notificationTarget = { role: 'hr' };
                 showAlert = 'Arbeitszeit eingereicht. Wartet auf HR-Genehmigung.';
-                sendNotification = true;
+            } else { // mitarbeiter
+                if (!currentUserStats.manager_email) {
+                    alert("Fehler: Ihnen ist kein Vorgesetzter zugewiesen. Bitte kontaktieren Sie HR.");
+                    return;
+                }
+                newStatus = 'pending_manager';
+                approverEmail = currentUserStats.manager_email;
+                notificationTarget = { email: approverEmail };
+                showAlert = 'Arbeitszeit eingereicht. Wartet auf Genehmigung durch Vorgesetzten.';
             }
-            // --- Ende Workflow-Logik ---
+            // --- Ende Workflow ---
 
             const newRequest = {
                 type: 'time',
@@ -1454,19 +1476,22 @@
                 details: `${start} - ${end} (${breakMin}min Pause) = ${hours.toFixed(2)}h`,
                 hours: hours,
                 notes: notes,
-                status: newStatus
+                status: newStatus,
+                approver_email: approverEmail,
+                approver_role: approverRole
             };
             try {
                 const { data, error } = await supabaseClient.from('Requests').insert(newRequest).select().single();
                 if (error) throw error;
                 allRequests.push(data);
 
-                if (newStatus === 'approved') {
+                if (newStatus === 'approved') { // Nur für CEO
                     await autoApproveStats(data);
                 }
 
                 if (sendNotification) {
-                    await createNotificationForRole(notifyRole, `Neuer Zeiteintrag von ${currentUser.name} für ${date} (${hours.toFixed(1)}h).`);
+                    const msg = `Neuer Zeiteintrag von ${currentUser.name} für ${date} (${hours.toFixed(1)}h).`;
+                    await sendSubmissionNotification(notificationTarget, msg);
                 }
 
                 alert(showAlert);
@@ -1487,23 +1512,39 @@
             if (days < 0) { alert("Das Enddatum muss nach dem Startdatum liegen."); return; }
             if (days === 0) { alert("Geht nicht wegen Sa und So. Der ausgewählte Zeitraum enthält keine Arbeitstage."); return; }
 
-            // --- KORRIGIERT: Workflow-Logik (BUG 1) ---
+            // --- NEUER WORKFLOW ---
             let newStatus = 'pending_manager';
-            let notifyRole = 'vorgesetzter';
             let showAlert = 'Urlaubsantrag erfolgreich eingereicht! Wartet auf Genehmigung.';
             let sendNotification = true;
+            let approverEmail = null;
+            let approverRole = null;
+            let notificationTarget = {};
 
-            if (currentUser.role === 'hr') {
+            if (currentUser.role === 'ceo') {
                 newStatus = 'approved';
-                showAlert = 'Urlaubsantrag als HR direkt verbucht.';
+                showAlert = 'Urlaubsantrag als CEO direkt verbucht.';
                 sendNotification = false;
+            } else if (currentUser.role === 'hr') {
+                newStatus = 'pending_ceo';
+                approverRole = 'ceo';
+                notificationTarget = { role: 'ceo' };
+                showAlert = 'Urlaubsantrag eingereicht. Wartet auf CEO-Genehmigung.';
             } else if (currentUser.role === 'vorgesetzter') {
                 newStatus = 'pending_hr';
-                notifyRole = 'hr';
+                approverRole = 'hr';
+                notificationTarget = { role: 'hr' };
                 showAlert = 'Urlaubsantrag eingereicht. Wartet auf HR-Genehmigung.';
-                sendNotification = true;
+            } else { // mitarbeiter
+                if (!currentUserStats.manager_email) {
+                    alert("Fehler: Ihnen ist kein Vorgesetzter zugewiesen. Bitte kontaktieren Sie HR.");
+                    return;
+                }
+                newStatus = 'pending_manager';
+                approverEmail = currentUserStats.manager_email;
+                notificationTarget = { email: approverEmail };
+                showAlert = 'Urlaubsantrag eingereicht. Wartet auf Genehmigung durch Vorgesetzten.';
             }
-            // --- Ende Workflow-Logik ---
+            // --- Ende Workflow ---
 
             const newRequest = {
                 type: 'vacation',
@@ -1514,7 +1555,9 @@
                 details: `${start} bis ${end} (${days} Arbeitstage)`,
                 days: days,
                 notes: reason,
-                status: newStatus
+                status: newStatus,
+                approver_email: approverEmail,
+                approver_role: approverRole
             };
             try {
                 const { data, error } = await supabaseClient.from('Requests').insert(newRequest).select().single();
@@ -1526,7 +1569,8 @@
                 }
 
                 if (sendNotification) {
-                    await createNotificationForRole(notifyRole, `Neuer Urlaubsantrag von ${currentUser.name} (${start} bis ${end}, ${days} Tage).`);
+                    const msg = `Neuer Urlaubsantrag von ${currentUser.name} (${start} bis ${end}, ${days} Tage).`;
+                    await sendSubmissionNotification(notificationTarget, msg);
                 }
 
                 alert(showAlert);
@@ -1548,15 +1592,17 @@
             if (days < 0) { alert("Das Enddatum muss nach dem Startdatum liegen."); return; }
             if (days === 0) { alert("Geht nicht wegen Sa und So. Der ausgewählte Zeitraum enthält keine Arbeitstage."); return; }
 
-            // --- KORRIGIERT: Workflow-Logik (BUG 1) ---
+            // --- NEUER WORKFLOW (Krankmeldungen gehen immer an HR, außer man ist HR/CEO) ---
             let newStatus = 'pending_hr';
             let showAlert = 'Krankmeldung erfolgreich gemeldet! HR wurde informiert.';
             let sendNotification = true;
+            let approverRole = 'hr';
 
-            if (currentUser.role === 'hr') {
+            if (currentUser.role === 'hr' || currentUser.role === 'ceo') {
                 newStatus = 'approved';
-                showAlert = 'Krankmeldung als HR direkt verbucht.';
+                showAlert = 'Krankmeldung als HR/CEO direkt verbucht.';
                 sendNotification = false;
+                approverRole = null;
             }
             // --- Ende Workflow-Logik ---
 
@@ -1569,7 +1615,9 @@
                 details: `${start} bis ${end} (${days} Arbeitstage) - Attest: ${certificate}`,
                 days: days,
                 notes: notes,
-                status: newStatus
+                status: newStatus,
+                approver_email: null,
+                approver_role: approverRole
             };
             try {
                 const { data, error } = await supabaseClient.from('Requests').insert(newRequest).select().single();
@@ -1593,20 +1641,30 @@
             }
         }
 
-        // --- Antrags-Management (Vorgesetzter/HR) ---
+        // --- Antrags-Management (Vorgesetzter/HR/CEO) ---
         function loadRequests() {
             const container = document.getElementById('requestsList');
             container.innerHTML = '';
             let relevantRequests = [];
 
-            // KORRIGIERT: HR sieht jetzt auch 'pending_hr' (von Vorgesetzten)
+            // --- NEUE LOGIK ZUM LADEN VON ANTRÄGEN ---
             if (currentUser.role === 'vorgesetzter') {
-                relevantRequests = allRequests.filter(r => r.status === 'pending_manager');
+                relevantRequests = allRequests.filter(r =>
+                    r.status === 'pending_manager' &&
+                    r.approver_email === currentUser.email
+                );
             } else if (currentUser.role === 'hr') {
-                const sickRequests = allRequests.filter(r => r.status === 'pending_hr');
-                const vacationToBook = allRequests.filter(r => r.status === 'approved_manager');
-                relevantRequests = [...sickRequests, ...vacationToBook];
+                relevantRequests = allRequests.filter(r =>
+                    (r.status === 'pending_hr' && r.approver_role === 'hr') || // Anträge von Vorgesetzten AN HR
+                    r.status === 'approved_manager' // Anträge von Mitarbeitern (End-Freigabe)
+                );
+            } else if (currentUser.role === 'ceo') {
+                relevantRequests = allRequests.filter(r =>
+                    r.status === 'pending_ceo' && r.approver_role === 'ceo'
+                ); // Anträge von HR
             }
+            // --- Ende ---
+
             if (relevantRequests.length === 0) {
                 container.innerHTML = '<p style="text-align: center; color: var(--text-light); padding: 40px;">Keine ausstehenden Anträge</p>';
                 return;
@@ -1623,6 +1681,7 @@
                 switch (request.status) {
                     case 'pending_manager': statusLabel = 'Wartet auf Vorgesetzten'; statusClass = 'status-pending'; break;
                     case 'pending_hr': statusLabel = 'Wartet auf HR'; statusClass = 'status-pending'; break;
+                    case 'pending_ceo': statusLabel = 'Wartet auf CEO'; statusClass = 'status-pending'; break;
                     case 'approved_manager': statusLabel = 'Vom Vorgesetzten genehmigt'; statusClass = 'status-approved'; typeLabel = '✅ ' + typeLabel; break;
                 }
 
@@ -1645,6 +1704,7 @@
             });
         }
 
+        // --- KORRIGIERT: processRequest MIT NEUEM WORKFLOW ---
         async function processRequest(id, approve) {
             const requestIndex = allRequests.findIndex(r => r.id === id);
             if (requestIndex === -1) return;
@@ -1663,46 +1723,56 @@
 
             try {
                 if (approve) {
-                    if (currentUser.role === 'vorgesetzter') {
-                        if (request.type === 'time') {
+                    // --- Vorgesetzter genehmigt ---
+                    if (currentUser.role === 'vorgesetzter' && request.status === 'pending_manager') {
+                        newStatus = 'approved_manager';
+                        msg = `Ihr Antrag (${request.date}) wurde vom Vorgesetzten genehmigt und an HR weitergeleitet.`;
+                        await createNotificationForRole('hr', `Genehmigter Antrag von ${request.employeeName} (${request.date}) wartet auf Verbuchung.`);
+                    }
+                    // --- HR genehmigt ---
+                    else if (currentUser.role === 'hr') {
+                        // End-Genehmigung (von Mitarbeiter via Vorgesetztem)
+                        if (request.status === 'approved_manager') {
                             newStatus = 'approved';
-                            newStats = {
-                                totalHours: userData.totalHours + request.hours,
-                                overtime: userData.overtime + (request.hours - (userData.plannedHours / 260))
-                            };
-                            msg = `Ihr Zeiteintrag für den ${request.date} (${request.hours.toFixed(1)}h) wurde genehmigt.`;
-                        } else if (request.type === 'vacation') {
-                            newStatus = 'approved_manager';
-                            msg = `Ihr Urlaubsantrag (${request.date} bis ${request.endDate}) wurde vom Vorgesetzten genehmigt und an HR weitergeleitet.`;
-                            await createNotificationForRole('hr', `Genehmigter Urlaub von ${request.employeeName} (${request.date}) wartet auf Verbuchung.`);
+                            if (request.type === 'time') {
+                                newStats = { totalHours: userData.totalHours + request.hours, overtime: userData.overtime + (request.hours - (userData.plannedHours / 260)) };
+                            } else if (request.type === 'vacation') {
+                                newStats = { vacationTaken: userData.vacationTaken + request.days };
+                            }
+                            msg = `Ihr Antrag (${request.date}) wurde von HR final genehmigt und verbucht.`;
                         }
-                    } else if (currentUser.role === 'hr') {
-                        // KORRIGIERT: HR genehmigt jetzt ALLES (auch 'pending_hr' von Vorgesetzten)
-                        if (request.type === 'time' && (request.status === 'pending_hr' || request.status === 'pending_manager')) {
+                        // Genehmigung von Antrag eines Vorgesetzten oder Krankmeldung
+                        else if (request.status === 'pending_hr') {
                             newStatus = 'approved';
-                            newStats = {
-                                totalHours: userData.totalHours + request.hours,
-                                overtime: userData.overtime + (request.hours - (userData.plannedHours / 260))
-                            };
-                            msg = `Ihr Zeiteintrag (${request.date}) wurde von HR genehmigt.`;
-                        }
-                        else if (request.type === 'sick') { // 'pending_hr'
-                            newStatus = 'approved';
-                            newStats = { sickDays: userData.sickDays + request.days };
-                            msg = `Ihre Krankmeldung (${request.date} bis ${request.endDate}) wurde von HR bestätigt.`;
-                        } else if (request.type === 'vacation') { // 'pending_hr' ODER 'approved_manager'
-                            newStatus = 'approved';
-                            newStats = { vacationTaken: userData.vacationTaken + request.days };
-                            msg = `Ihr Urlaubsantrag (${request.date} bis ${request.endDate}) wurde von HR final genehmigt und verbucht.`;
+                            if (request.type === 'time') {
+                                newStats = { totalHours: userData.totalHours + request.hours, overtime: userData.overtime + (request.hours - (userData.plannedHours / 260)) };
+                            } else if (request.type === 'vacation') {
+                                newStats = { vacationTaken: userData.vacationTaken + request.days };
+                            } else if (request.type === 'sick') {
+                                newStats = { sickDays: userData.sickDays + request.days };
+                            }
+                            msg = `Ihr Antrag (${request.date}) wurde von HR genehmigt und verbucht.`;
                         }
                     }
+                    // --- CEO genehmigt ---
+                    else if (currentUser.role === 'ceo' && request.status === 'pending_ceo') {
+                        newStatus = 'approved';
+                        if (request.type === 'time') {
+                            newStats = { totalHours: userData.totalHours + request.hours, overtime: userData.overtime + (request.hours - (userData.plannedHours / 260)) };
+                        } else if (request.type === 'vacation') {
+                            newStats = { vacationTaken: userData.vacationTaken + request.days };
+                        }
+                        msg = `Ihr Antrag (${request.date}) wurde vom CEO genehmigt und verbucht.`;
+                    }
                 } else {
+                    // --- Ablehnung (gilt für alle Rollen) ---
                     const reason = prompt('Grund für die Ablehnung (optional):');
                     newStatus = 'rejected';
                     let typeText = request.type === 'time' ? 'Zeiteintrag' : (request.type === 'vacation' ? 'Urlaubsantrag' : 'Krankmeldung');
                     msg = `Ihr ${typeText} (${request.date}) wurde abgelehnt. Grund: ${reason || 'Kein Grund angegeben'}`;
                 }
 
+                // 1. Request-Status in DB ändern
                 const { data: updatedRequest, error: reqUpdateError } = await supabaseClient
                     .from('Requests')
                     .update({ status: newStatus })
@@ -1711,6 +1781,7 @@
                     .single();
                 if (reqUpdateError) throw reqUpdateError;
 
+                // 2. Ggf. User-Stats in DB ändern
                 if (Object.keys(newStats).length > 0) {
                     const { data: updatedUser, error: userUpdateError } = await supabaseClient
                         .from('Users')
@@ -1731,6 +1802,7 @@
                     }
                 }
 
+                // 3. Benachrichtigung an den ursprünglichen Antragsteller senden
                 if (msg) {
                     await createNotification(request.employeeEmail, msg);
                 }
@@ -1831,17 +1903,13 @@
             const dayData = new Map();
             const userRequests = allRequests.filter(r =>
                 r.employeeEmail === currentUser.email &&
-                r.status === 'approved' && // Nur genehmigte anzeigen
+                r.status === 'approved' &&
                 (parseLocalDate(r.date).getFullYear() === currentYear || (r.endDate && parseLocalDate(r.endDate).getFullYear() === currentYear))
             );
             userRequests.filter(r => r.type === 'time').forEach(req => dayData.set(req.date, 'work'));
             userRequests.filter(r => (r.type === 'vacation' || r.type === 'sick') && r.endDate).forEach(req => {
                 for (let d = parseLocalDate(req.date); d <= parseLocalDate(req.endDate); d.setDate(d.getDate() + 1)) {
-
-                    // =======================================================
-                    // KORRIGIERT (BUG 1): Nutze toLocalISOString statt toISOString
-                    // =======================================================
-                    const isoDate = toLocalISOString(d);
+                    const isoDate = toLocalISOString(d); // KORRIGIERT
                     dayData.set(isoDate, req.type);
                 }
             });
@@ -1896,23 +1964,26 @@
                             <th>Name</th>
                             <th>Email</th>
                             <th>Rolle</th>
-                            <th>Urlaub (Gen./Ges.)</th>
-                            <th>Überstunden</th>
-                            <th>Wochenstd.</th> <th>Aktion</th>
+                            <th>Abteilung</th>
+                            <th>Manager</th>
+                            <th>Aktion</th>
                         </tr>
                     </thead>
                     <tbody>
             `;
 
             allUsers.forEach(user => {
+                const manager = allUsers.find(m => m.email === user.manager_email);
+                const managerName = manager ? manager.name : '---';
+
                 tableHTML += `
                     <tr>
                         <td>${user.name}</td>
                         <td>${user.email}</td>
                         <td>${user.role}</td>
-                        <td>${user.vacationTaken} / ${user.vacationTotal}</td>
-                        <td>${user.overtime.toFixed(1)}h</td>
-                        <td>${(user.plannedHours / 52).toFixed(1)}h</td> <td>
+                        <td>${user.abteilung || '---'}</td>
+                        <td>${managerName}</td>
+                        <td>
                             <button class="btn-small" onclick="openEditUserModal('${user.email}')">Bearbeiten</button>
                         </td>
                     </tr>
@@ -1923,6 +1994,7 @@
             container.innerHTML = tableHTML;
         }
 
+        // KORRIGIERT: Füllt das Manager-Dropdown dynamisch
         function openEditUserModal(email) {
             const user = allUsers.find(u => u.email === email);
             if (!user) {
@@ -1937,14 +2009,51 @@
             document.getElementById('editVacationTaken').value = user.vacationTaken;
             document.getElementById('editSickDays').value = user.sickDays;
             document.getElementById('editOvertime').value = user.overtime;
-            // NEU (BUG 2): Berechne Wochenstunden aus Jahresstunden
             document.getElementById('editWeeklyHours').value = (user.plannedHours / 52);
+            document.getElementById('editUserRole').value = user.role;
+            document.getElementById('editUserAbteilung').value = user.abteilung || '';
+
+            // 1. ZUERST die Dropdown-Optionen basierend auf der Rolle füllen
+            toggleManagerSelect(user.role);
+
+            // 2. DANN den aktuell gespeicherten Wert auswählen
+            document.getElementById('editUserManager').value = user.manager_email || "";
 
             loadUserRequestHistory(email);
-
             openModal('editUserModal');
         }
 
+        // KORRIGIERT: Füllt das Manager-Dropdown dynamisch je nach ROLLE
+        function toggleManagerSelect(selectedRole) {
+            const managerGroup = document.getElementById('managerSelectGroup');
+            const managerSelect = document.getElementById('editUserManager');
+
+            managerSelect.innerHTML = '<option value="">-- Keiner zugewiesen --</option>'; // Reset
+
+            if (selectedRole === 'mitarbeiter') {
+                managerGroup.style.display = 'block';
+                const managers = allUsers.filter(u => u.role === 'vorgesetzter');
+                managers.forEach(manager => {
+                    const option = document.createElement('option');
+                    option.value = manager.email;
+                    option.textContent = `${manager.name} (${manager.email})`;
+                    managerSelect.appendChild(option);
+                });
+            } else if (selectedRole === 'vorgesetzter' || selectedRole === 'hr') {
+                managerGroup.style.display = 'block';
+                const ceos = allUsers.filter(u => u.role === 'ceo');
+                ceos.forEach(ceo => {
+                    const option = document.createElement('option');
+                    option.value = ceo.email;
+                    option.textContent = `${ceo.name} (${ceo.email})`;
+                    managerSelect.appendChild(option);
+                });
+            } else {
+                managerGroup.style.display = 'none'; // CEOs haben keinen Manager
+            }
+        }
+
+        // KORRIGIERT: Speichert manager_email jetzt korrekt
         async function submitUserEdit(event) {
             event.preventDefault();
             const btn = event.target.querySelector('.btn');
@@ -1952,22 +2061,31 @@
             btn.disabled = true;
 
             const userEmail = document.getElementById('editUserEmail').value;
-            // NEU (BUG 2): Lese Wochenstunden und berechne Jahresstunden
             const weeklyHours = parseFloat(document.getElementById('editWeeklyHours').value);
+            const selectedRole = document.getElementById('editUserRole').value;
 
-            const updatedStats = {
+            const updatedData = {
+                // Profildaten
+                role: selectedRole,
+                abteilung: document.getElementById('editUserAbteilung').value || null,
+                // KORRIGIERT: Speichert Manager nur, wenn Rolle 'mitarbeiter', 'vorgesetzter' oder 'hr' ist
+                manager_email: (selectedRole === 'mitarbeiter' || selectedRole === 'vorgesetzter' || selectedRole === 'hr')
+                    ? (document.getElementById('editUserManager').value || null)
+                    : null,
+
+                // Statistik-Daten
                 totalHours: parseFloat(document.getElementById('editTotalHours').value),
                 vacationTotal: parseInt(document.getElementById('editVacationTotal').value),
                 vacationTaken: parseInt(document.getElementById('editVacationTaken').value),
                 sickDays: parseInt(document.getElementById('editSickDays').value),
                 overtime: parseFloat(document.getElementById('editOvertime').value),
-                plannedHours: weeklyHours * 52 // Speichere als Jahresstunden
+                plannedHours: weeklyHours * 52
             };
 
             try {
                 const { data: updatedUser, error } = await supabaseClient
                     .from('Users')
-                    .update(updatedStats)
+                    .update(updatedData)
                     .eq('email', userEmail)
                     .select()
                     .single();
@@ -2057,10 +2175,8 @@
             }
             const request = allRequests[requestIndex];
 
-            // KORRIGIERT: Findet den User zuverlässig, auch wenn es der HR-User selbst ist
             let userStats = allUsers.find(u => u.email === request.employeeEmail);
             if (!userStats) {
-                // Fallback, falls der User (z.B. HR) nicht in der 'allUsers' liste ist
                 let { data: userStatsFromDB, error: userError } = await supabaseClient
                     .from('Users')
                     .select('*')
@@ -2140,7 +2256,6 @@
         });
 
         window.onload = function () {
-            // KORRIGIERT (BUG 2 & 3): Nutzt getLocalISODate()
             const today = getLocalISODate();
 
             document.getElementById('timeDate').value = today;
@@ -2198,7 +2313,7 @@
                     document.getElementById('dashboardTitle').textContent = 'Management Dashboard';
                     manageUsersBtn.style.display = 'inline-block';
                     loadRequests();
-                } else if (userStats.role === 'vorgesetzter') {
+                } else if (userStats.role === 'vorgesetzter' || userStats.role === 'ceo') {
                     requestsSection.style.display = 'block';
                     document.getElementById('dashboardTitle').textContent = 'Management Dashboard';
                     manageUsersBtn.style.display = 'none';
