@@ -146,6 +146,23 @@
             box-shadow: 0 10px 25px rgba(29, 77, 77, 0.3);
         }
 
+        .form-options {
+            text-align: left;
+            margin-bottom: 20px;
+        }
+
+        .forgot-link {
+            font-size: 14px;
+            color: var(--secondary);
+            text-decoration: none;
+            transition: all 0.3s ease;
+        }
+
+        .forgot-link:hover {
+            text-decoration: underline;
+            color: var(--primary);
+        }
+
         .dashboard {
             display: none;
             min-height: 100vh;
@@ -554,6 +571,26 @@
             transform: translateY(-2px);
         }
 
+        .change-password-btn {
+            width: 100%;
+            padding: 14px;
+            background: rgba(255, 255, 255, 0.1);
+            /* Etwas heller */
+            color: var(--white);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+            /* Kleinerer Abstand als Logout */
+        }
+
+        .change-password-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+
         #notificationBtn {
             position: relative;
             display: none;
@@ -717,6 +754,11 @@
             font-size: 12px;
         }
 
+        .action-cell {
+            display: flex;
+            gap: 8px;
+        }
+
         @media (max-width: 768px) {
             .dashboard.active {
                 flex-direction: column;
@@ -806,6 +848,15 @@
             .month-name {
                 font-size: 18px;
             }
+
+            .action-cell {
+                flex-direction: column;
+            }
+
+            .btn-small {
+                width: 100%;
+                text-align: center;
+            }
         }
     </style>
 </head>
@@ -827,6 +878,9 @@
                 <div class="form-group">
                     <label for="password">Passwort</label>
                     <input type="password" id="password" required placeholder="••••••••">
+                </div>
+                <div class="form-options">
+                    <a href="#" id="forgotPasswordLink" class="forgot-link">Passwort vergessen?</a>
                 </div>
                 <button type="submit" class="btn">Anmelden</button>
             </form>
@@ -866,6 +920,8 @@
                 </div>
             </div>
             <button class="logout-btn" onclick="logout()">Abmelden</button>
+            <button class="change-password-btn" onclick="openModal('changePasswordModal')">Passwort ändern</button>
+
         </div>
 
         <div class="main-content">
@@ -1022,6 +1078,10 @@
                 <h2>Mitarbeiter verwalten</h2>
                 <button class="close-btn" onclick="closeModal('userManagementModal')">×</button>
             </div>
+            <button class="btn" onclick="openAddUserModal()"
+                style="margin-bottom: 20px; width: auto; background: var(--success);">
+                + Neuen Mitarbeiter anlegen
+            </button>
             <div id="userManagementList">
             </div>
         </div>
@@ -1043,14 +1103,16 @@
                 </div>
                 <div class="form-group">
                     <label>Rolle</label>
-                    <select id="editUserRole" class="form-control" onchange="toggleManagerSelect(this.value)">
+                    <select id="editUserRole" class="form-control"
+                        onchange="toggleManagerSelect(this.value, 'editUserManager', 'managerSelectGroup')">
                         <option value="mitarbeiter">Mitarbeiter</option>
                         <option value="vorgesetzter">Vorgesetzter</option>
                         <option value="hr">HR</option>
                         <option value="ceo">CEO</option>
                     </select>
                 </div>
-                <div class="form-group" id="managerSelectGroup"> <label>Zuständiger Vorgesetzter</label>
+                <div class="form-group" id="managerSelectGroup">
+                    <label>Zuständiger Vorgesetzter</label>
                     <select id="editUserManager" class="form-control">
                         <option value="">-- Keiner zugewiesen --</option>
                     </select>
@@ -1091,6 +1153,106 @@
                 <div id="editUserRequestsList" style="max-height: 300px; overflow-y: auto;">
                 </div>
             </div>
+        </div>
+    </div>
+
+    <div id="addUserModal" class="modal">
+        <div class="modal-content modal-lg">
+            <div class="modal-header">
+                <h2>Neuen Mitarbeiter anlegen</h2>
+                <button class="close-btn" onclick="closeModal('addUserModal')">×</button>
+            </div>
+
+            <form id="addUserForm" onsubmit="submitAddUser(event)">
+                <div class="form-group">
+                    <label>Voller Name</label>
+                    <input type="text" id="addUserName" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label>E-Mail</label>
+                    <input type="email" id="addUserEmail" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label>Anfangs-Passwort</label>
+                    <input type="password" id="addUserPassword" class="form-control" required
+                        placeholder="Mind. 6 Zeichen">
+
+                </div>
+                <div class="form-group">
+                    <label>Abteilung</label>
+                    <input type="text" id="addUserAbteilung" class="form-control" placeholder="z.B. Marketing, IT...">
+                </div>
+                <div class="form-group">
+                    <label>Rolle</label>
+                    <select id="addUserRole" class="form-control"
+                        onchange="toggleManagerSelect(this.value, 'addUserManager', 'addUserManagerGroup')">
+                        <option value="mitarbeiter">Mitarbeiter</option>
+                        <option value="vorgesetzter">Vorgesetzter</option>
+                        <option value="hr">HR</option>
+                        <option value="ceo">CEO</option>
+                    </select>
+                </div>
+                <div class="form-group" id="addUserManagerGroup">
+                    <label>Zuständiger Vorgesetzter</label>
+                    <select id="addUserManager" class="form-control">
+                        <option value="">-- Keiner zugewiesen --</option>
+                    </select>
+                </div>
+
+
+                <hr style="border: none; border-top: 1px solid var(--border); margin: 30px 0;">
+
+                <div class="form-group">
+                    <label>Wöchentliche Soll-Stunden</label>
+                    <input type="number" step="0.5" id="addWeeklyHours" class="form-control" required value="40">
+                </div>
+                <div class="form-group">
+                    <label>Urlaubstage (Anspruch)</label>
+                    <input type="number" id="addVacationTotal" class="form-control" required value="30">
+                </div>
+
+                <button type="submit" class="btn">Mitarbeiter erstellen</button>
+
+            </form>
+
+        </div>
+
+    </div>
+
+    <div id="forgotPasswordModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Passwort vergessen</h2>
+                <button class="close-btn" onclick="closeModal('forgotPasswordModal')">×</button>
+            </div>
+            <form onsubmit="submitForgotPassword(event)">
+                <div class="form-group">
+                    <label>Ihre E-Mail</label>
+                    <input type="email" id="forgotEmail" required placeholder="Geben Sie Ihre E-Mail ein">
+                </div>
+                <button type="submit" class="btn">Link anfordern</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="changePasswordModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Neues Passwort festlegen</h2>
+                <button class="close-btn" onclick="closeModal('changePasswordModal')">×</button>
+            </div>
+            <form onsubmit="submitChangePassword(event)">
+                <div class="form-group">
+                    <label>Neues Passwort</label>
+                    <input type="password" id="newPassword" required minlength="6" placeholder="Mind. 6 Zeichen">
+                </div>
+                <div class="form-group">
+                    <label>Neues Passwort bestätigen</label>
+                    <input type="password" id="confirmPassword" required minlength="6"
+                        placeholder="Passwort wiederholen">
+                </div>
+                <button type="submit" class="btn">Passwort ändern</button>
+            </form>
         </div>
     </div>
 
@@ -1406,6 +1568,7 @@
                 }
             }
         }
+
 
         async function sendSubmissionNotification(target, message) {
             if (target.role) {
@@ -1909,7 +2072,7 @@
             userRequests.filter(r => r.type === 'time').forEach(req => dayData.set(req.date, 'work'));
             userRequests.filter(r => (r.type === 'vacation' || r.type === 'sick') && r.endDate).forEach(req => {
                 for (let d = parseLocalDate(req.date); d <= parseLocalDate(req.endDate); d.setDate(d.getDate() + 1)) {
-                    const isoDate = toLocalISOString(d); // KORRIGIERT
+                    const isoDate = toLocalISOString(d);
                     dayData.set(isoDate, req.type);
                 }
             });
@@ -1932,7 +2095,7 @@
                 for (let day = 1; day <= daysInMonth; day++) {
                     const dayCell = document.createElement('div');
                     const currentDate = new Date(currentYear, month, day);
-                    const isoDate = toLocalISOString(currentDate); // KORRIGIERT
+                    const isoDate = toLocalISOString(currentDate);
                     const dayOfWeek = currentDate.getDay();
                     dayCell.className = 'detail-day'; dayCell.textContent = day;
                     const status = dayData.get(isoDate);
@@ -1983,8 +2146,9 @@
                         <td>${user.role}</td>
                         <td>${user.abteilung || '---'}</td>
                         <td>${managerName}</td>
-                        <td>
+                        <td class="action-cell">
                             <button class="btn-small" onclick="openEditUserModal('${user.email}')">Bearbeiten</button>
+                            <button class="btn-small btn-reject" onclick="deleteUser('${user.email}', '${user.name}')">Löschen</button>
                         </td>
                     </tr>
                 `;
@@ -1994,7 +2158,15 @@
             container.innerHTML = tableHTML;
         }
 
-        // KORRIGIERT: Füllt das Manager-Dropdown dynamisch
+        // NEU: Öffnet das "Mitarbeiter hinzufügen"-Modal
+        function openAddUserModal() {
+            document.getElementById('addUserForm').reset();
+            // Füllt das Manager-Dropdown (standardmäßig für "mitarbeiter")
+            toggleManagerSelect('mitarbeiter', 'addUserManager', 'addUserManagerGroup');
+            closeModal('userManagementModal');
+            openModal('addUserModal');
+        }
+
         function openEditUserModal(email) {
             const user = allUsers.find(u => u.email === email);
             if (!user) {
@@ -2014,7 +2186,7 @@
             document.getElementById('editUserAbteilung').value = user.abteilung || '';
 
             // 1. ZUERST die Dropdown-Optionen basierend auf der Rolle füllen
-            toggleManagerSelect(user.role);
+            toggleManagerSelect(user.role, 'editUserManager', 'managerSelectGroup');
 
             // 2. DANN den aktuell gespeicherten Wert auswählen
             document.getElementById('editUserManager').value = user.manager_email || "";
@@ -2024,36 +2196,38 @@
         }
 
         // KORRIGIERT: Füllt das Manager-Dropdown dynamisch je nach ROLLE
-        function toggleManagerSelect(selectedRole) {
-            const managerGroup = document.getElementById('managerSelectGroup');
-            const managerSelect = document.getElementById('editUserManager');
+        function toggleManagerSelect(selectedRole, selectElementId = 'editUserManager', groupElementId = 'managerSelectGroup') {
+            const managerGroup = document.getElementById(groupElementId);
+            const managerSelect = document.getElementById(selectElementId);
 
             managerSelect.innerHTML = '<option value="">-- Keiner zugewiesen --</option>'; // Reset
+            let managers = [];
 
             if (selectedRole === 'mitarbeiter') {
                 managerGroup.style.display = 'block';
-                const managers = allUsers.filter(u => u.role === 'vorgesetzter');
-                managers.forEach(manager => {
+                managers = allUsers.filter(u => u.role === 'vorgesetzter');
+            } else if (selectedRole === 'vorgesetzter' || selectedRole === 'hr') {
+                managerGroup.style.display = 'block';
+                managers = allUsers.filter(u => u.role === 'ceo');
+            } else {
+                managerGroup.style.display = 'none'; // CEOs haben keinen Manager
+            }
+
+            managers.forEach(manager => {
+                // Verhindern, dass sich ein User selbst als Manager zuweist (wichtig für AddUser-Modal)
+                const potentialUserEmail = (selectElementId === 'editUserManager')
+                    ? document.getElementById('editUserEmail').value
+                    : document.getElementById('addUserEmail').value;
+
+                if (manager.email !== potentialUserEmail) {
                     const option = document.createElement('option');
                     option.value = manager.email;
                     option.textContent = `${manager.name} (${manager.email})`;
                     managerSelect.appendChild(option);
-                });
-            } else if (selectedRole === 'vorgesetzter' || selectedRole === 'hr') {
-                managerGroup.style.display = 'block';
-                const ceos = allUsers.filter(u => u.role === 'ceo');
-                ceos.forEach(ceo => {
-                    const option = document.createElement('option');
-                    option.value = ceo.email;
-                    option.textContent = `${ceo.name} (${ceo.email})`;
-                    managerSelect.appendChild(option);
-                });
-            } else {
-                managerGroup.style.display = 'none'; // CEOs haben keinen Manager
-            }
+                }
+            });
         }
 
-        // KORRIGIERT: Speichert manager_email jetzt korrekt
         async function submitUserEdit(event) {
             event.preventDefault();
             const btn = event.target.querySelector('.btn');
@@ -2065,15 +2239,9 @@
             const selectedRole = document.getElementById('editUserRole').value;
 
             const updatedData = {
-                // Profildaten
                 role: selectedRole,
                 abteilung: document.getElementById('editUserAbteilung').value || null,
-                // KORRIGIERT: Speichert Manager nur, wenn Rolle 'mitarbeiter', 'vorgesetzter' oder 'hr' ist
-                manager_email: (selectedRole === 'mitarbeiter' || selectedRole === 'vorgesetzter' || selectedRole === 'hr')
-                    ? (document.getElementById('editUserManager').value || null)
-                    : null,
-
-                // Statistik-Daten
+                manager_email: (selectedRole !== 'ceo') ? (document.getElementById('editUserManager').value || null) : null,
                 totalHours: parseFloat(document.getElementById('editTotalHours').value),
                 vacationTotal: parseInt(document.getElementById('editVacationTotal').value),
                 vacationTaken: parseInt(document.getElementById('editVacationTaken').value),
@@ -2112,6 +2280,110 @@
             } finally {
                 btn.textContent = 'Änderungen speichern';
                 btn.disabled = false;
+            }
+        }
+
+        // NEU: Funktion zum Hinzufügen von Benutzern
+        async function submitAddUser(event) {
+            event.preventDefault();
+            const btn = event.target.querySelector('.btn');
+            btn.textContent = 'Erstelle...';
+            btn.disabled = true;
+
+            const name = document.getElementById('addUserName').value;
+            const email = document.getElementById('addUserEmail').value.toLowerCase();
+            const password = document.getElementById('addUserPassword').value;
+            const role = document.getElementById('addUserRole').value;
+            const abteilung = document.getElementById('addUserAbteilung').value || null;
+            const weeklyHours = parseFloat(document.getElementById('addWeeklyHours').value);
+            const vacationTotal = parseInt(document.getElementById('addVacationTotal').value);
+            const manager_email = (role !== 'ceo') ? (document.getElementById('addUserManager').value || null) : null;
+
+            try {
+                // 1. Benutzer im sicheren Auth-System erstellen
+                const { data: authData, error: authError } = await supabaseClient.auth.signUp({
+                    email: email,
+                    password: password
+                });
+
+                if (authError) throw authError;
+
+                // 2. Benutzer-Profil in der 'Users'-Tabelle erstellen
+                const profileData = {
+                    email: email,
+                    name: name,
+                    role: role,
+                    abteilung: abteilung,
+                    manager_email: manager_email,
+                    plannedHours: weeklyHours * 52,
+                    vacationTotal: vacationTotal
+                };
+
+                const { data: newProfile, error: profileError } = await supabaseClient
+                    .from('Users')
+                    .insert(profileData)
+                    .select()
+                    .single();
+
+                if (profileError) throw profileError;
+
+                // --- KORRIGIERT: NEUE BENACHRICHTIGUNGS-LOGIK ---
+                // 3. Benachrichtigung an den Manager (Chef oder CEO)
+                if (manager_email) {
+                    const message = `Ein neuer Mitarbeiter wurde Ihnen zugewiesen: ${name} (${email}). Das initiale Passwort lautet: ${password}`;
+                    await createNotification(manager_email, message);
+                }
+
+                // 4. Benachrichtigung an den neuen Mitarbeiter selbst
+                const welcomeMessage = `Willkommen, ${name}! Ihr Konto wurde erstellt. Bitte bestätigen Sie Ihre E-Mail. Ihr Manager wurde über Ihr initiales Passwort informiert.`;
+                await createNotification(email, welcomeMessage);
+                // --- Ende ---
+
+                allUsers.push(newProfile);
+
+                alert(`Benutzer ${name} erfolgreich erstellt! Eine Bestätigungs-E-Mail wurde an ${email} gesendet UND der zuständige Manager wurde benachrichtigt.`);
+                closeModal('addUserModal');
+                openModal('userManagementModal'); // Zurück zur Liste
+
+            } catch (error) {
+                console.error("Fehler beim Erstellen des Benutzers:", error.message);
+                alert(`Fehler: ${error.message}`);
+            } finally {
+                btn.textContent = 'Mitarbeiter erstellen';
+                btn.disabled = false;
+            }
+        }
+
+        // NEU: Funktion zum Löschen von Benutzern
+        async function deleteUser(email, name) {
+            if (!confirm(`Wollen Sie ${name} (${email}) wirklich löschen? \nWARNUNG: Alle Anträge und Meldungen dieser Person werden ebenfalls gelöscht. Dies kann nicht rückgängig gemacht werden.`)) {
+                return;
+            }
+            console.log(`Lösche User: ${email}`);
+            try {
+                // 1. Alle Anträge löschen
+                const { error: reqError } = await supabaseClient.from('Requests').delete().eq('employeeEmail', email);
+                if (reqError) throw reqError;
+
+                // 2. Alle Meldungen löschen
+                const { error: notifError } = await supabaseClient.from('Notifications').delete().eq('targetEmail', email);
+                if (notifError) throw notifError;
+
+                // 3. Profil aus 'Users' löschen
+                const { error: userError } = await supabaseClient.from('Users').delete().eq('email', email);
+                if (userError) throw userError;
+
+                // 4. Lokalen Cache aktualisieren
+                allUsers = allUsers.filter(u => u.email !== email);
+                allRequests = allRequests.filter(r => r.employeeEmail !== email);
+                allNotifications = allNotifications.filter(n => n.targetEmail !== email);
+
+                alert(`Benutzerprofil für ${name} erfolgreich gelöscht.\n\nWICHTIG: Sie müssen den Login-Zugang (Auth) dieses Benutzers jetzt manuell in Ihrem Supabase-Dashboard im "Authentication"-Tab löschen, um den Login zu sperren.`);
+                loadUserManagementList(); // Liste neu laden
+
+            } catch (error) {
+                console.error('Fehler beim Löschen des Users:', error);
+                alert(`Fehler: ${error.message}`);
             }
         }
 
@@ -2245,6 +2517,69 @@
             }
         }
 
+        async function submitForgotPassword(e) {
+            e.preventDefault();
+            const btn = e.target.querySelector('.btn');
+            btn.textContent = 'Sende...';
+            btn.disabled = true;
+            const email = document.getElementById('forgotEmail').value.toLowerCase();
+
+            try {
+                // HINWEIS: Dies sendet eine E-Mail an den Benutzer.
+                // Sie müssen E-Mail-Vorlagen in Ihrem Supabase-Projekt aktivieren!
+                const { data, error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+                    redirectTo: window.location.origin // Link, zu dem der User nach Klick in der E-Mail zurückkehrt
+                });
+
+                if (error) throw error;
+
+                alert('Anweisungen zum Zurücksetzen des Passworts wurden an Ihre E-Mail gesendet.');
+                closeModal('forgotPasswordModal');
+                e.target.reset();
+            } catch (error) {
+                console.error('Fehler bei Passwort-Reset:', error);
+                alert(`Fehler: ${error.message}. Ist die E-Mail korrekt?`);
+            } finally {
+                btn.textContent = 'Link anfordern';
+                btn.disabled = false;
+            }
+        }
+
+        async function submitChangePassword(e) {
+            e.preventDefault();
+            const btn = e.target.querySelector('.btn');
+            const newPassword = document.getElementById('newPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+
+            if (newPassword.length < 6) {
+                alert('Das Passwort muss mindestens 6 Zeichen lang sein.');
+                return;
+            }
+            if (newPassword !== confirmPassword) {
+                alert('Die Passwörter stimmen nicht überein.');
+                return;
+            }
+
+            btn.textContent = 'Ändere...';
+            btn.disabled = true;
+
+            try {
+                // Diese Funktion ändert das Passwort des aktuell eingeloggten Benutzers
+                const { data, error } = await supabaseClient.auth.updateUser({ password: newPassword });
+                if (error) throw error;
+
+                alert('Passwort erfolgreich geändert!');
+                closeModal('changePasswordModal');
+                e.target.reset();
+            } catch (error) {
+                console.error('Fehler beim Ändern des Passworts:', error);
+                alert(`Fehler: ${error.message}`);
+            } finally {
+                btn.textContent = 'Passwort ändern';
+                btn.disabled = false;
+            }
+        }
+
 
         // --- INIT & HELPER ---
         document.querySelectorAll('.modal').forEach(modal => {
@@ -2258,11 +2593,18 @@
         window.onload = function () {
             const today = getLocalISODate();
 
+            // KORRIGIERT: Fehlende Zeilen wiederhergestellt
             document.getElementById('timeDate').value = today;
             document.getElementById('vacationStart').value = today;
             document.getElementById('vacationEnd').value = today;
             document.getElementById('sickStart').value = today;
             document.getElementById('sickEnd').value = today;
+
+            // NEU: Event-Listener für "Passwort vergessen"
+            document.getElementById('forgotPasswordLink').addEventListener('click', (e) => {
+                e.preventDefault();
+                openModal('forgotPasswordModal');
+            });
 
             checkSessionAndLoad();
         };
